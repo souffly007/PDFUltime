@@ -11,6 +11,12 @@ import kotlin.math.roundToInt
 class AboutActivity : ComponentActivity() {
     private fun dp(value: Int) = (value * resources.displayMetrics.density).roundToInt()
 
+    private fun versionName(): String = try {
+        packageManager.getPackageInfo(packageName, 0).versionName ?: ""
+    } catch (_: Exception) {
+        ""
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         ThemeManager.apply(this)
         super.onCreate(savedInstanceState)
@@ -35,7 +41,7 @@ class AboutActivity : ComponentActivity() {
             setPadding(0, dp(16), 0, dp(8))
         })
         root.addView(TextView(this).apply {
-            text = "Lecteur et éditeur PDF libre\nVersion 1.1.6\n\nCréée avec passion par Bonobo.\n\nPDF Ultime est distribué sous licence GPL v3."
+            text = "Lecteur et éditeur PDF libre\nVersion ${versionName()}\n\nCréée avec passion par Bonobo.\n\nLes signatures ajoutées sont visuelles : elles ne remplacent pas une signature électronique certifiée.\n\nPDF Ultime est distribué sous licence GPL v3."
             textSize = 16f
             gravity = Gravity.CENTER
         })

@@ -45,7 +45,7 @@ class DeletePagesActivity : ComponentActivity() {
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.rgb(247, 247, 251))
+            setBackgroundColor(ThemeManager.background(this@DeletePagesActivity))
         }
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
@@ -66,11 +66,13 @@ class DeletePagesActivity : ComponentActivity() {
             text = "Supprimer des pages"
             textSize = 20f
             setTypeface(typeface, 1)
+            setTextColor(ThemeManager.text(this@DeletePagesActivity))
             setPadding(dp(8), 0, 0, 0)
         }, LinearLayout.LayoutParams(0, -2, 1f))
         root.addView(header)
         root.addView(TextView(this).apply {
             text = "Touchez les pages à supprimer. L’original sera conservé."
+            setTextColor(ThemeManager.text(this@DeletePagesActivity))
             setPadding(dp(20), 0, dp(20), dp(12))
         })
 
@@ -98,7 +100,7 @@ class DeletePagesActivity : ComponentActivity() {
     private fun pageRow(index: Int): View {
         val card = MaterialCardView(this).apply {
             radius = dp(18).toFloat()
-            setCardBackgroundColor(Color.WHITE)
+            setCardBackgroundColor(ThemeManager.surface(this@DeletePagesActivity))
             setContentPadding(dp(12), dp(10), dp(12), dp(10))
         }
         val row = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
@@ -116,12 +118,16 @@ class DeletePagesActivity : ComponentActivity() {
         row.addView(TextView(this).apply {
             text = "Page ${index + 1}"
             textSize = 17f
+            setTextColor(ThemeManager.text(this@DeletePagesActivity))
             setPadding(dp(18), 0, 0, 0)
         }, LinearLayout.LayoutParams(0, -2, 1f))
         card.addView(row)
         card.setOnClickListener {
             if (!selectedPages.add(index)) selectedPages.remove(index)
-            card.setCardBackgroundColor(if (selectedPages.contains(index)) 0xFFE9E7FF.toInt() else Color.WHITE)
+            card.setCardBackgroundColor(
+                if (selectedPages.contains(index)) ThemeManager.primary(this@DeletePagesActivity)
+                else ThemeManager.surface(this@DeletePagesActivity)
+            )
             deleteButton.text = "Supprimer ${selectedPages.size} page${if (selectedPages.size > 1) "s" else ""}"
             deleteButton.isEnabled = selectedPages.isNotEmpty() && selectedPages.size < renderer.pageCount
         }
@@ -157,6 +163,8 @@ class DeletePagesActivity : ComponentActivity() {
         val source = pendingOutput
         val destination = data?.data
         if (resultCode != RESULT_OK || source == null || destination == null) {
+            source?.delete()
+            pendingOutput = null
             deleteButton.isEnabled = true
             return
         }
@@ -165,15 +173,19 @@ class DeletePagesActivity : ComponentActivity() {
                 source.inputStream().use { input -> input.copyTo(output) }
             } ?: error("Impossible d’enregistrer le fichier")
             source.delete()
+            pendingOutput = null
             Toast.makeText(this, "PDF enregistré", Toast.LENGTH_LONG).show()
             finish()
         } catch (_: Exception) {
+            source.delete()
+            pendingOutput = null
             deleteButton.isEnabled = true
             Toast.makeText(this, "Impossible d’enregistrer le PDF", Toast.LENGTH_LONG).show()
         }
     }
 
     override fun onDestroy() {
+        pendingOutput?.delete()
         if (::renderer.isInitialized) renderer.close()
         if (::descriptor.isInitialized) descriptor.close()
         super.onDestroy()

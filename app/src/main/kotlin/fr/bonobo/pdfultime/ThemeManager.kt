@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 object ThemeManager {
     private const val PREFS = "pdf_ultime_preferences"
     private const val KEY_THEME = "theme"
+    private const val KEY_NIGHT_READING = "reader_night"
 
     const val LIGHT = "light"
     const val DARK = "dark"
@@ -27,6 +28,16 @@ object ThemeManager {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_THEME, theme)
+            .apply()
+    }
+
+    fun nightReading(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_NIGHT_READING, false)
+
+    fun setNightReading(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_NIGHT_READING, enabled)
             .apply()
     }
 

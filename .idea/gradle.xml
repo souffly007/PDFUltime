@@ -5,11 +5,21 @@
     <option name="linkedExternalProjectsSettings">
       <GradleProjectSettings>
         <option name="testRunner" value="CHOOSE_PER_TEST" />
+        <option name="externalProjectPath" value="/run/media/Snoopy63/634B898E7B8D73D8/PDFUltime-1.7.0-stable" />
+        <option name="modules">
+          <set>
+            <option value="/run/media/Snoopy63/634B898E7B8D73D8/PDFUltime-1.7.0-stable" />
+            <option value="/run/media/Snoopy63/634B898E7B8D73D8/PDFUltime-1.7.0-stable/app" />
+          </set>
+        </option>
+      </GradleProjectSettings>
+      <GradleProjectSettings>
+        <option name="testRunner" value="CHOOSE_PER_TEST" />
         <option name="externalProjectPath" value="$PROJECT_DIR$" />
         <option name="modules">
           <set>
-            <option value="$PROJECT_DIR$" />
-            <option value="$PROJECT_DIR$/app" />
+            <option value="/run/media/Snoopy63/634B898E7B8D73D8/PDFUltime-1.7.0-stable" />
+            <option value="/run/media/Snoopy63/634B898E7B8D73D8/PDFUltime-1.7.0-stable/app" />
           </set>
         </option>
       </GradleProjectSettings>

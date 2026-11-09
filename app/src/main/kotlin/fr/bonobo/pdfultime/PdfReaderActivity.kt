@@ -3,8 +3,11 @@ package fr.bonobo.pdfultime
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.RectF
 import android.graphics.pdf.PdfRenderer
 import android.content.Intent
 import android.net.Uri
@@ -26,12 +29,16 @@ import androidx.core.view.WindowInsetsCompat
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 import java.io.File
 
 class PdfReaderActivity : ComponentActivity() {
     private lateinit var renderer: PdfRenderer
     private lateinit var descriptor: ParcelFileDescriptor
     private lateinit var pageView: PdfPageView
+    private lateinit var info: TextView
+    private var nightMode = false
+    private var decryptedCopy: File? = null
     private var page = 0
     private var zoom = 1f
     private var signatureMode = false
@@ -52,18 +59,67 @@ class PdfReaderActivity : ComponentActivity() {
         pdfUri = uri
         signatureMode = intent.getBooleanExtra("signature_mode", false)
         textMode = intent.getBooleanExtra("text_mode", false)
+        nightMode = ThemeManager.nightReading(this)
 
         try {
-            descriptor = contentResolver.openFileDescriptor(uri, "r")!!
-            renderer = PdfRenderer(descriptor)
+            openRenderer(uri)
+            buildUi()
+        } catch (_: SecurityException) {
+            // PDF chiffré : on demande le mot de passe puis on travaille sur une copie déchiffrée.
+            askPassword(uri)
         } catch (_: Exception) {
             Toast.makeText(this, "Impossible d’ouvrir ce PDF", Toast.LENGTH_LONG).show()
-            return finish()
+            finish()
         }
+    }
 
+    private fun openRenderer(uri: Uri) {
+        val opened = contentResolver.openFileDescriptor(uri, "r") ?: throw java.io.IOException("Descripteur indisponible")
+        try {
+            renderer = PdfRenderer(opened)
+            descriptor = opened
+        } catch (e: Exception) {
+            opened.close()
+            throw e
+        }
+    }
+
+    private fun askPassword(uri: Uri, retry: Boolean = false) {
+        val input = EditText(this).apply {
+            hint = "Mot de passe"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setPadding(dp(20), dp(8), dp(20), dp(8))
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Document protégé")
+            .setMessage(if (retry) "Mot de passe incorrect. Réessayez." else "Saisissez le mot de passe pour ouvrir ce PDF.")
+            .setView(input)
+            .setCancelable(false)
+            .setNegativeButton("Annuler") { _, _ -> finish() }
+            .setPositiveButton("Ouvrir") { _, _ ->
+                PdfOperations.unlock(this, uri, input.text.toString(), { file ->
+                    try {
+                        decryptedCopy = file
+                        pdfUri = Uri.fromFile(file)
+                        val opened = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+                        renderer = PdfRenderer(opened)
+                        descriptor = opened
+                        buildUi()
+                    } catch (_: Exception) {
+                        Toast.makeText(this, "Impossible d’ouvrir ce PDF", Toast.LENGTH_LONG).show()
+                        finish()
+                    }
+                }, { _ ->
+                    askPassword(uri, retry = true)
+                })
+            }
+            .show()
+    }
+
+    private fun buildUi() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.rgb(32, 33, 36))
+            setBackgroundColor(ThemeManager.background(this@PdfReaderActivity))
         }
 
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
@@ -82,10 +138,26 @@ class PdfReaderActivity : ComponentActivity() {
             textSize = 28f
             setOnClickListener { finish() }
         }
-        val info = TextView(this).apply {
-            setTextColor(Color.WHITE)
+        info = TextView(this).apply {
+            setTextColor(ThemeManager.text(this@PdfReaderActivity))
             gravity = Gravity.CENTER
             textSize = 16f
+            setOnClickListener { showGoToPage() }
+        }
+        val night = Button(this).apply {
+            text = "☾"
+            textSize = 18f
+            contentDescription = "Mode nuit du lecteur"
+            setOnClickListener {
+                nightMode = !nightMode
+                ThemeManager.setNightReading(this@PdfReaderActivity, nightMode)
+                pageView.invalidate()
+                Toast.makeText(
+                    this@PdfReaderActivity,
+                    if (nightMode) "Mode nuit activé" else "Mode nuit désactivé",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
         }
         val sign = Button(this).apply {
             text = "✎"
@@ -132,19 +204,15 @@ class PdfReaderActivity : ComponentActivity() {
 
         bar.addView(close, LinearLayout.LayoutParams(dp(56), dp(56)))
         bar.addView(info, LinearLayout.LayoutParams(0, -2, 1f))
-        bar.addView(sign, LinearLayout.LayoutParams(dp(52), dp(56)))
-        bar.addView(textTool, LinearLayout.LayoutParams(dp(52), dp(56)))
-        bar.addView(minus, LinearLayout.LayoutParams(dp(52), dp(56)))
-        bar.addView(plus, LinearLayout.LayoutParams(dp(52), dp(56)))
+        bar.addView(sign, LinearLayout.LayoutParams(dp(46), dp(56)))
+        bar.addView(textTool, LinearLayout.LayoutParams(dp(46), dp(56)))
+        bar.addView(night, LinearLayout.LayoutParams(dp(46), dp(56)))
+        bar.addView(minus, LinearLayout.LayoutParams(dp(46), dp(56)))
+        bar.addView(plus, LinearLayout.LayoutParams(dp(46), dp(56)))
         root.addView(bar)
 
         pageView = PdfPageView()
         root.addView(pageView, LinearLayout.LayoutParams(-1, 0, 1f))
-
-        fun updatePage() {
-            info.text = "${page + 1} / ${renderer.pageCount}"
-            pageView.invalidate()
-        }
 
         val pageNavigation = LinearLayout(this).apply {
             gravity = Gravity.CENTER
@@ -163,7 +231,7 @@ class PdfReaderActivity : ComponentActivity() {
             }
         }
         val pageLabel = TextView(this).apply {
-            setTextColor(Color.WHITE)
+            setTextColor(ThemeManager.text(this@PdfReaderActivity))
             gravity = Gravity.CENTER
         }
         val next = Button(this).apply {
@@ -197,6 +265,35 @@ class PdfReaderActivity : ComponentActivity() {
         if (textMode) {
             Toast.makeText(this, "Touchez l’endroit où ajouter le texte", Toast.LENGTH_LONG).show()
         }
+    }
+
+    private fun updatePage() {
+        info.text = "${page + 1} / ${renderer.pageCount}"
+        pageView.invalidate()
+    }
+
+    private fun showGoToPage() {
+        val input = EditText(this).apply {
+            hint = "1 – ${renderer.pageCount}"
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setPadding(dp(20), dp(8), dp(20), dp(8))
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Aller à la page")
+            .setView(input)
+            .setNegativeButton("Annuler", null)
+            .setPositiveButton("Aller") { _, _ ->
+                val target = input.text.toString().toIntOrNull()
+                if (target == null || target < 1 || target > renderer.pageCount) {
+                    Toast.makeText(this, "Page invalide", Toast.LENGTH_LONG).show()
+                } else {
+                    page = target - 1
+                    zoom = 1f
+                    pageView.resetPan()
+                    updatePage()
+                }
+            }
+            .show()
     }
 
     private fun showSignatureDialog(pdfX: Float, pdfY: Float) {
@@ -280,8 +377,13 @@ class PdfReaderActivity : ComponentActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != saveSignedPdfRequest && requestCode != saveTextPdfRequest) return
         val source = if (requestCode == saveSignedPdfRequest) pendingSignedPdf else pendingTextPdf
-        val destination = data?.data
-        if (resultCode != RESULT_OK || source == null || destination == null) return
+        val destination = if (resultCode == RESULT_OK) data?.data else null
+        if (source == null) return
+        if (destination == null) {
+            source.delete()
+            if (requestCode == saveSignedPdfRequest) pendingSignedPdf = null else pendingTextPdf = null
+            return
+        }
         try {
             contentResolver.openOutputStream(destination)?.use { output ->
                 source.inputStream().use { input -> input.copyTo(output) }
@@ -293,18 +395,34 @@ class PdfReaderActivity : ComponentActivity() {
                 Toast.LENGTH_LONG
             ).show()
         } catch (_: Exception) {
-            Toast.makeText(this, "Impossible d’enregistrer le PDF signé", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Impossible d’enregistrer le PDF", Toast.LENGTH_LONG).show()
+        } finally {
+            source.delete()
+            if (requestCode == saveSignedPdfRequest) pendingSignedPdf = null else pendingTextPdf = null
         }
     }
 
     override fun onDestroy() {
+        pendingSignedPdf?.delete()
+        pendingTextPdf?.delete()
         if (::renderer.isInitialized) renderer.close()
         if (::descriptor.isInitialized) descriptor.close()
+        decryptedCopy?.delete()
         super.onDestroy()
     }
 
     private inner class PdfPageView : View(this) {
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val nightFilter = ColorMatrixColorFilter(
+            ColorMatrix(
+                floatArrayOf(
+                    -1f, 0f, 0f, 0f, 255f,
+                    0f, -1f, 0f, 0f, 255f,
+                    0f, 0f, -1f, 0f, 255f,
+                    0f, 0f, 0f, 1f, 0f
+                )
+            )
+        )
         private var downX = 0f
         private var downY = 0f
         private var lastX = 0f
@@ -337,8 +455,12 @@ class PdfReaderActivity : ComponentActivity() {
                 availableHeight.toFloat() / pdfPage.height
             )
             val actualScale = fitScale * zoom
-            val bitmapWidth = (pdfPage.width * actualScale).roundToInt().coerceAtLeast(1)
-            val bitmapHeight = (pdfPage.height * actualScale).roundToInt().coerceAtLeast(1)
+            val displayWidth = (pdfPage.width * actualScale).roundToInt().coerceAtLeast(1)
+            val displayHeight = (pdfPage.height * actualScale).roundToInt().coerceAtLeast(1)
+            // Rendering directly at a 3× zoom can allocate hundreds of MB on large PDF pages.
+            val renderFactor = min(1f, sqrt(8_000_000f / (displayWidth.toFloat() * displayHeight)))
+            val bitmapWidth = (displayWidth * renderFactor).roundToInt().coerceAtLeast(1)
+            val bitmapHeight = (displayHeight * renderFactor).roundToInt().coerceAtLeast(1)
 
             if (bitmap?.width != bitmapWidth || bitmap?.height != bitmapHeight) {
                 bitmap = Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
@@ -353,18 +475,24 @@ class PdfReaderActivity : ComponentActivity() {
             )
             pdfPage.close()
 
-            val left = (width - bitmapWidth) / 2f
-            val top = (height - bitmapHeight) / 2f
+            val left = (width - displayWidth) / 2f
+            val top = (height - displayHeight) / 2f
             lastScale = actualScale
             lastLeft = left
             lastTop = top
-            lastBitmapWidth = bitmapWidth
-            lastBitmapHeight = bitmapHeight
-            val maxOffsetX = ((bitmapWidth - width) / 2f).coerceAtLeast(0f)
-            val maxOffsetY = ((bitmapHeight - height) / 2f).coerceAtLeast(0f)
+            lastBitmapWidth = displayWidth
+            lastBitmapHeight = displayHeight
+            val maxOffsetX = ((displayWidth - width) / 2f).coerceAtLeast(0f)
+            val maxOffsetY = ((displayHeight - height) / 2f).coerceAtLeast(0f)
             offsetX = offsetX.coerceIn(-maxOffsetX, maxOffsetX)
             offsetY = offsetY.coerceIn(-maxOffsetY, maxOffsetY)
-            canvas.drawBitmap(bitmap!!, left + offsetX, top + offsetY, paint)
+            paint.colorFilter = if (nightMode) nightFilter else null
+            canvas.drawBitmap(
+                bitmap!!,
+                null,
+                RectF(left + offsetX, top + offsetY, left + offsetX + displayWidth, top + offsetY + displayHeight),
+                paint
+            )
         }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -440,7 +568,7 @@ class PdfReaderActivity : ComponentActivity() {
         private var ink = false
 
         override fun onDraw(canvas: Canvas) {
-            canvas.drawColor(Color.WHITE)
+            canvas.drawColor(Color.TRANSPARENT)
             canvas.drawPath(path, paint)
         }
 
@@ -461,7 +589,7 @@ class PdfReaderActivity : ComponentActivity() {
         fun toBitmap(): Bitmap {
             val bitmap = Bitmap.createBitmap(width.coerceAtLeast(1), height.coerceAtLeast(1), Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap)
-            canvas.drawColor(Color.WHITE)
+            canvas.drawColor(Color.TRANSPARENT)
             canvas.drawPath(path, paint)
             return bitmap
         }

@@ -3,7 +3,7 @@
   <component name="ProjectMigrations">
     <option name="MigrateToGradleLocalJavaHome">
       <set>
-        <option value="$PROJECT_DIR$" />
+        <option value="/run/media/Snoopy63/634B898E7B8D73D8/PDFUltime-1.7.0-stable/app" />
       </set>
     </option>
   </component>
